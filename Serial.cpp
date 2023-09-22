@@ -43,7 +43,7 @@ Serial::Serial(const char* portName)
         else
         {
             //Define serial connection parameters for the arduino board
-            dcbSerialParams.BaudRate = 57600;
+            dcbSerialParams.BaudRate = 115200;
             dcbSerialParams.ByteSize = 8;
             dcbSerialParams.StopBits = ONESTOPBIT;
             dcbSerialParams.Parity = NOPARITY;
