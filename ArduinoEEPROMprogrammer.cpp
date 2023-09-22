@@ -15,6 +15,7 @@
 #include <ctype.h>
 #include <conio.h>
 #include <fstream>
+#include <algorithm>
 
 #pragma comment(lib, "Setupapi.lib")
 
@@ -289,9 +290,32 @@ namespace mainmenu {
             else if (c == 13) break;
         }
 
-        std::cout << std::endl << "Writing data...";
-        DWORD bytesSent = NULL;
+        /*
+        std::vector<int> addrs;
+        for (int i = 0; i < 8192; i++) {
+            if (data[i] != static_cast<unsigned char>(file[i])) {
+                addrs.push_back(i);
+            }
+        }
+
+        
+        std::cout << "\nTransmitting address information... ";
+
+        bool b = (addrs.size() > 4096);
+        int n = b ? 8192 - addrs.size() : addrs.size();
+        for (int i = 0; i < 8192; i++) {
+            bool c = std::find(addrs.begin(), addrs.end(), i) != addrs.end();
+            if (b ? !c : c) {
+                write_to_serial(SP, std:)
+            }
+        }
+        */
+
         write_to_serial(SP, std::string(1, static_cast<char>(0xAA)));
+        std::cout << std::endl << "Writing data...";
+        
+        DWORD bytesSent = NULL;
+        
         for (size_t i = 0; i < 8192; i++) {
             bytesSent += write_to_serial(SP, std::string(1, file[i]));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
