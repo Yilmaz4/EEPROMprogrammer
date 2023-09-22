@@ -10,8 +10,6 @@ int addr = 0x0000;
 
 int receiving = 0;
 
-char buf[1024];
-
 void set_address(int addr, bool OE) { 
   shiftOut(sdata, sclck, MSBFIRST, (addr >> 8) | (OE ? 0x00 : 0x80));
   shiftOut(sdata, sclck, MSBFIRST, (addr));
@@ -62,7 +60,7 @@ void setup() {
   digitalWrite(write_en, HIGH);
   pinMode(write_en, OUTPUT);
 
-  Serial.begin(57600);
+  Serial.begin(115200);
   Serial.setTimeout(100);
 }
 
