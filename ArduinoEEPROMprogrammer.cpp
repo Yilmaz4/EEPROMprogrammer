@@ -34,10 +34,26 @@
 #define ERASE 4
 #define EXIT 5
 
+#define AT28C64B 0
+#define AT28C256 1
+
 std::vector<int> GetAvailableCOMPorts();
 std::vector<std::string> GetDeviceNames();
 
-static unsigned char* data = new unsigned char[8192];
+unsigned int size = 0;
+
+static unsigned char* data = new unsigned char[32768];
+
+void clear_screen() {
+    COORD tl = { 0, 0 };
+    CONSOLE_SCREEN_BUFFER_INFO s;
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    GetConsoleScreenBufferInfo(console, &s);
+    DWORD written, cells = s.dwSize.X * s.dwSize.Y;
+    FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
+    FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
+    SetConsoleCursorPosition(console, tl);
+}
 
 void wait_for_key_press() {
     HANDLE hstdin;
@@ -51,28 +67,21 @@ void wait_for_key_press() {
         ch = std::cin.get();
     }
 
-    COORD tl = { 0,0 };
-    CONSOLE_SCREEN_BUFFER_INFO s;
-    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    GetConsoleScreenBufferInfo(console, &s);
-    DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-    FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
-    FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-    SetConsoleCursorPosition(console, tl);
+    clear_screen();
 
     SetConsoleMode(hstdin, mode);
 }
 
 namespace mainmenu {
     void read_into_buffer(Serial* SP) {
-        int arr[1] = { 0xab };
+        int arr[1] = { 0x01 };
         DWORD bytesSend;
         if (!WriteFile(SP->hSerial, arr, 1, &bytesSend, 0)) {
             std::cout << std::endl << "An error occured while trying to communicate with Arduino. Press any key to continue...";
             wait_for_key_press();
             return;
         }
-        for (int i = 0; i < 8192; i++) {
+        for (int i = 0; i < size; i++) {
             unsigned char c = '\0';
             DWORD bytesRead;
             if (!ReadFile(SP->hSerial, &c, 1, &bytesRead, NULL)) {
@@ -93,27 +102,20 @@ namespace mainmenu {
         return bytesSent;
     }
     void print() {
-        COORD tl = { 0,0 };
-        CONSOLE_SCREEN_BUFFER_INFO s;
-        HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-        GetConsoleScreenBufferInfo(console, &s);
-        DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-        FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
-        FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-        SetConsoleCursorPosition(console, tl);
+        clear_screen();
 
-        for (int i = 0; i < 8192; i += 16) {
-            printf("0x%04x:  ", i);
+        for (int i = 0; i < size; i += 16) {
+            std::cout << std::hex << std::setfill('0') << "0x" << std::setw(4) << i << ":  ";
             for (int j = 0; j < 16; j++) {
-                printf("%02hhx ", data[i + j]);
-                if (j == 7) printf(" ");
+                std::cout << std::hex << std::setw(2) << static_cast<int>(data[i + j]) << ' ';
+                if (j == 7) std::cout << ' ';
             }
-            printf(" | ");
+            std::cout << " | ";
             for (int j = 0; j < 16; j++) {
-                char c = isprint(data[i + j]) ? data[i + j] : '.';
-                printf("%c", c);
+                char c = std::isprint(data[i + j]) ? static_cast<char>(data[i + j]) : '.';
+                std::cout << c;
             }
-            printf(" |\n");
+            std::cout << " |\n";
         }
         std::cout << "Press any key to continue... ";
         wait_for_key_press();
@@ -152,7 +154,7 @@ namespace mainmenu {
         std::ofstream in;
         in.open(ofn.lpstrFile, std::ios::out | std::ios::binary | std::ofstream::trunc);
 
-        in.write(reinterpret_cast<const char*>(data), 8192);
+        in.write(reinterpret_cast<const char*>(data), size);
 
         std::cout << "EEPROM contents have been successfully dumped! Press any key to continue... ";
         wait_for_key_press();
@@ -189,7 +191,7 @@ namespace mainmenu {
         DWORD bytesRead;
         std::vector<int> addresses;
 
-        for (int i = 0; i < 8192 && !in.eof(); i++) {
+        for (int i = 0; i < size && !in.eof(); i++) {
             unsigned char ch;
             in >> ch;
             DWORD bytesSend;
@@ -213,63 +215,88 @@ namespace mainmenu {
     }
 
     void write(Serial* SP) {
-        OPENFILENAMEA ofn;
-        char szFileName[MAX_PATH];
-        char szFileTitle[MAX_PATH];
+        std::vector<int> addrs;
+        std::vector<int> values;
 
-        *szFileName = 0;
-        *szFileTitle = 0;
+        while (true) {
+            OPENFILENAMEA ofn;
+            char szFileName[MAX_PATH];
+            char szFileTitle[MAX_PATH];
 
-        ofn.lStructSize = sizeof(OPENFILENAME);
-        ofn.hwndOwner = GetFocus();
-        ofn.lpstrFilter = "Binary File (*.bin)\0*.bin\0ROM File (*.rom)\0*.rom\0All Files (*.*)\0*.*\0";
-        ofn.lpstrCustomFilter = NULL;
-        ofn.nMaxCustFilter = 0;
-        ofn.nFilterIndex = 0;
-        ofn.lpstrFile = szFileName;
-        ofn.nMaxFile = MAX_PATH;
-        ofn.lpstrInitialDir = "."; // Initial directory.
-        ofn.lpstrFileTitle = szFileTitle;
-        ofn.nMaxFileTitle = MAX_PATH;
-        ofn.lpstrTitle = "Open a file to write to EEPROM...";
-        ofn.lpstrDefExt = "*.bin";
+            *szFileName = 0;
+            *szFileTitle = 0;
 
-        ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+            ofn.lStructSize = sizeof(OPENFILENAME);
+            ofn.hwndOwner = GetFocus();
+            ofn.lpstrFilter = "Binary File (*.bin)\0*.bin\0ROM File (*.rom)\0*.rom\0All Files (*.*)\0*.*\0";
+            ofn.lpstrCustomFilter = NULL;
+            ofn.nMaxCustFilter = 0;
+            ofn.nFilterIndex = 0;
+            ofn.lpstrFile = szFileName;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.lpstrInitialDir = "."; // Initial directory.
+            ofn.lpstrFileTitle = szFileTitle;
+            ofn.nMaxFileTitle = MAX_PATH;
+            ofn.lpstrTitle = "Open a file to write to EEPROM...";
+            ofn.lpstrDefExt = "*.bin";
 
-        if (!GetOpenFileNameA((LPOPENFILENAMEA)&ofn)) {
-            COORD tl = { 0,0 };
-            CONSOLE_SCREEN_BUFFER_INFO s;
-            HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-            GetConsoleScreenBufferInfo(console, &s);
-            DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-            FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
-            FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-            SetConsoleCursorPosition(console, tl);
-            return;
-        }
-        std::ifstream in;
-        in.open(ofn.lpstrFile, std::ios::in | std::ios::binary);
+            ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 
-        COORD tl = { 0,0 };
-        CONSOLE_SCREEN_BUFFER_INFO s;
-        HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-        GetConsoleScreenBufferInfo(console, &s);
-        DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-        FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
-        FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-        SetConsoleCursorPosition(console, tl);
-
-        DWORD bytesSend;
-        std::string file((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        file.resize(8192);
-
-        for (int i = 0; i < 8192; i += 16) {
-            printf("0x%04x:  ", i);
-            for (int j = 0; j < 16; j++) {
-                printf("%02hhx ", file[i + j]);
-                if (j == 7) printf(" ");
+            if (!GetOpenFileNameA((LPOPENFILENAMEA)&ofn)) {
+                clear_screen();
+                return;
             }
-            printf("\n");
+            std::ifstream in;
+            in.open(ofn.lpstrFile, std::ios::in | std::ios::binary);
+
+            clear_screen();
+
+            DWORD bytesSend;
+            std::string file((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            int length = file.size();
+            file.resize(size);
+            for (int i = length; i < size; i++) {
+                file[i] = 0x00;
+            }
+
+            addrs.erase(addrs.begin(), addrs.end());
+            values.erase(values.begin(), values.end());
+            for (int i = 0; i < size; i++) {
+                if (data[i] != static_cast<unsigned char>(file[i])) {
+                    addrs.push_back(i);
+                    values.push_back(file[i]);
+                }
+            }
+
+            if (!addrs.size()) {
+                std::cout << "The contents of the file you have chosen is identical to the EEPROM contents.\n" << "Press Enter to choose another file, Space to cancel. ";
+                while (true) {
+                    int c = _getch();
+                    if (c == 32) {
+                        clear_screen();
+                        return;
+                    }
+                    else if (c == 13) {
+                        break;
+                    }
+                }
+            }
+            else {
+                for (int i = 0; i < size; i += 16) {
+                    printf("0x%04x:  ", i);
+                    for (int j = 0; j < 16; j++) {
+                        printf("%02hhx ", file[i + j]);
+                        if (j == 7) printf(" ");
+                    }
+                    printf(" | ");
+                    for (int j = 0; j < 16; j++) {
+                        char c = isprint((unsigned char)file[i + j]) ? (unsigned char)file[i + j] : '.';
+                        printf("%c", c);
+                    }
+                    printf(" |\n");
+                }
+                break;
+            }
         }
 
         std::cout << "\nYou're about to overwrite the data in the EEPROM with the data above.\n"
@@ -277,48 +304,25 @@ namespace mainmenu {
         while (true) {
             int c = _getch();
             if (c == 32) {
-                COORD tl = { 0,0 };
-                CONSOLE_SCREEN_BUFFER_INFO s;
-                HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-                GetConsoleScreenBufferInfo(console, &s);
-                DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-                FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
-                FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-                SetConsoleCursorPosition(console, tl);
+                clear_screen();
                 return;
             }
             else if (c == 13) break;
         }
-
-        /*
-        std::vector<int> addrs;
-        for (int i = 0; i < 8192; i++) {
-            if (data[i] != static_cast<unsigned char>(file[i])) {
-                addrs.push_back(i);
-            }
-        }
-
         
-        std::cout << "\nTransmitting address information... ";
-
-        bool b = (addrs.size() > 4096);
-        int n = b ? 8192 - addrs.size() : addrs.size();
-        for (int i = 0; i < 8192; i++) {
-            bool c = std::find(addrs.begin(), addrs.end(), i) != addrs.end();
-            if (b ? !c : c) {
-                write_to_serial(SP, std:)
-            }
-        }
-        */
-
-        write_to_serial(SP, std::string(1, static_cast<char>(0xAA)));
+        write_to_serial(SP, std::string(1, static_cast<char>(0x00)));
         std::cout << std::endl << "Writing data...";
-        
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size() >> 8)));
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size())));
         DWORD bytesSent = NULL;
-        
-        for (size_t i = 0; i < 8192; i++) {
-            bytesSent += write_to_serial(SP, std::string(1, file[i]));
+        HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+        for (size_t i = 0; i < values.size(); i++) {
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i] >> 8)));
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i])));
+            bytesSent += write_to_serial(SP, std::string(1, values[i]));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            /*SetConsoleCursorPosition(output, { 11, 10 });
+            std::cout << (int)(i / (size / 100)) << "%";*/
         }
 
         std::cout << std::endl << bytesSent << " bytes have been written. Reading the EEPROM into the buffer...";
@@ -333,29 +337,36 @@ namespace mainmenu {
         while (true) {
             int c = _getch();
             if (c == 32) {
-                COORD tl = { 0,0 };
-                CONSOLE_SCREEN_BUFFER_INFO s;
-                HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-                GetConsoleScreenBufferInfo(console, &s);
-                DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-                FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
-                FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-                SetConsoleCursorPosition(console, tl);
+                clear_screen();
                 return;
             }
             else if (c == 13) break;
         }
 
-        std::cout << std::endl << "Erasing...";
-        std::string data(8192, static_cast<char>(0x00));
-        DWORD bytesSent = NULL;
-        write_to_serial(SP, std::string(1, static_cast<char>(0xAA)));
-        for (size_t i = 0; i < 8192; i++) {
-            bytesSent += write_to_serial(SP, std::string(1, data[i]));
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::cout << std::endl << "Erasing... ";
+
+        std::vector<int> addrs;
+        for (int i = 0; i < size; i++) {
+            if (data[i] != 0) {
+                addrs.push_back(i);
+            }
         }
 
-        std::cout << std::endl << bytesSent << " bytes have been written. Reading the EEPROM into the buffer...";
+        write_to_serial(SP, std::string(1, static_cast<char>(0x00)));
+        std::cout << std::endl << "Writing data...";
+        write_to_serial(SP, std::string(1, (unsigned char)(addrs.size() >> 8)));
+        write_to_serial(SP, std::string(1, (unsigned char)(addrs.size())));
+        DWORD bytesSent = NULL;
+        HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+        for (size_t i = 0; i < addrs.size(); i++) {
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i] >> 8)));
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i])));
+            bytesSent += write_to_serial(SP, std::string(1, 0x00));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            /*SetConsoleCursorPosition(output, { 11, 10 });
+            std::cout << (int)(i / (size / 100)) << "%";*/
+        }
+        std::cout << "\nAll bytes have been set to 0x00. Reading the EEPROM into the buffer...";
         read_into_buffer(SP);
         std::cout << "\nSuccess. Press any key to continue... ";
         wait_for_key_press();
@@ -423,17 +434,51 @@ int main(int argc, char* argv[]) {
                 }
                 break;
             }
-            std::cout << std::endl << "Connection established! Baud rate: 57600\nWaiting for data...";
+            clear_screen();
+            std::cout << "Connection established! Baud rate: 115200";
+            int chip = 0;
+            std::cout << "\nSelect the chip model:\n"
+                "> AT28C64B\n"
+                "  AT28C256\n";
+            unsigned int ch = 0;
+            bool loop = true;
+            while (loop) {
+                ch = 0;
+                HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+                switch (ch = _getch()) {
+                case KEY_DOWN:
+                    SetConsoleCursorPosition(output, { 0, (short)(2 + chip) });
+                    std::cout << (char)(0x20) << std::flush;
+                    ((chip != 1) ? chip++ : chip = 0);
+                    SetConsoleCursorPosition(output, { 0, (short)(2 + chip) });
+                    std::cout << ">" << std::flush;
+                    SetConsoleCursorPosition(output, { 0, 4 });
+                    break;
+                case KEY_UP:
+                    SetConsoleCursorPosition(output, { 0, (short)(2 + chip) });
+                    std::cout << (char)(0x20) << std::flush;
+                    ((chip != 0) ? chip-- : chip = 1);
+                    SetConsoleCursorPosition(output, { 0, (short)(2 + chip) });
+                    std::cout << ">" << std::flush;
+                    SetConsoleCursorPosition(output, { 0, 4 });
+                    break;
+                case VK_RETURN:
+                    loop = false;
+                    break;
+                }
+            }
+            char sdata[] = { 0x02, chip };
+            size = chip ? 32768 : 8192;
+            for (size_t i = 0; i < 2; i++) {
+                mainmenu::write_to_serial(SP, std::string(1, sdata[i]));
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            clear_screen();
+
+            std::cout << "Reading EEPROM into buffer... ";
             mainmenu::read_into_buffer(SP);
 
-            COORD tl = { 0,0 };
-            CONSOLE_SCREEN_BUFFER_INFO s;
-            HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-            GetConsoleScreenBufferInfo(console, &s);
-            DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-            FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
-            FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-            SetConsoleCursorPosition(console, tl);
+            clear_screen();
 
             while (true) {
                 if (!SP->IsConnected()) {
@@ -441,7 +486,7 @@ int main(int argc, char* argv[]) {
                     wait_for_key_press();
                     break;
                 }
-                std::cout << "Select an operation to continue...\n"
+                std::cout << "Select an operation to continue:\n"
                     "> Read\n"
                     "  Verify\n"
                     "  Dump to file\n"
