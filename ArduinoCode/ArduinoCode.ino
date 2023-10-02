@@ -6,9 +6,12 @@ constexpr int eeprom_d0 = 5;
 constexpr int eeprom_d7 = 12;
 constexpr int write_en = 13;
 
-int addr = 0x0000;
+int size = 0;
+int lengthOfData = 0;
 
-int receiving = 0;
+int receivingData = 0;
+unsigned int address = 0;
+int receivingSize = 0;
 
 void set_address(int addr, bool OE) { 
   shiftOut(sdata, sclck, MSBFIRST, (addr >> 8) | (OE ? 0x00 : 0x80));
@@ -19,7 +22,7 @@ void set_address(int addr, bool OE) {
   digitalWrite(sltch, LOW);
 }
 
-byte read(int addr) {
+byte read(unsigned int addr) {
   for (int pin = eeprom_d7; pin >= eeprom_d0; pin--) {
     pinMode(pin, INPUT);
   }
@@ -31,7 +34,7 @@ byte read(int addr) {
   return data;
 }
 
-void write(int addr, byte data) {
+void write(unsigned int addr, byte data) {
   set_address(addr, false);
   for (int pin = eeprom_d0; pin <= eeprom_d7; pin++) {
     pinMode(pin, OUTPUT);
@@ -43,11 +46,11 @@ void write(int addr, byte data) {
   digitalWrite(write_en, LOW);
   delayMicroseconds(1);
   digitalWrite(write_en, HIGH);
-  delay(1);
+  delay(10);
 }
 
-void dump(uint32_t limit = 8192) {
-  for (uint32_t i = 0; i < limit; i++) {
+void dump(unsigned int limit) {
+  for (int i = 0; i < limit; i++) {
     Serial.write((unsigned char)read(i));
   }
 }
@@ -70,23 +73,43 @@ void loop() {
 
 void readSerial() {
   while (Serial.available()) {
-    char ch = (char)Serial.read();
-    if (receiving) {
-      write(addr, (byte)((unsigned char)ch));
-      if (addr >= 8191) {
-        receiving = 0;
-        addr = 0;
+    if (receivingData) {
+      while (Serial.available() < 3);
+      address = Serial.read();
+      address <<= 8;
+      address += Serial.read();
+
+      write(address, (unsigned char)Serial.read());
+      if (receivingData >= lengthOfData) {
+        receivingData = 0;
+        break;
       }
-      addr += 1;
+      receivingData += 1;
+      address = 0;
     }
     else {
-      switch (int((unsigned char)ch)) {
-      case 0xaa:
-        receiving = 1;
-        addr = 0;
+      switch (Serial.read()) {
+      case 0x00:
+        while (Serial.available() < 2);
+        lengthOfData = Serial.read();
+        lengthOfData <<= 8;
+        lengthOfData += Serial.read();
+        receivingData = 1;
         break;
-      case 0xab:
-        dump(8192);
+      case 0x01:
+        dump(size);
+        break;
+      case 0x02:
+        while (!Serial.available());
+        size = (Serial.read() == 0x00 ? 8192 : 32768);
+        break;
+      case 0x03:
+        for (int i = 0; i < size; i++) {
+          write(i, 0x00);
+          if (i % 64 == 0) {
+            Serial.write((unsigned char)0x55);
+          }
+        }
         break;
       }
     }
