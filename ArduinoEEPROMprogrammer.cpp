@@ -49,8 +49,8 @@ void clear_screen() {
     CONSOLE_SCREEN_BUFFER_INFO s;
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
     GetConsoleScreenBufferInfo(console, &s);
-    DWORD written, cells = s.dwSize.X * s.dwSize.Y;
-    FillConsoleOutputCharacter(console, ' ', cells, tl, &written);
+    DWORD written, cells = s.dwSize.X * 35000;
+    FillConsoleOutputCharacterW(console, ' ', cells, tl, &written);
     FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
     SetConsoleCursorPosition(console, tl);
 }
