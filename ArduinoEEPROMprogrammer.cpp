@@ -46,14 +46,23 @@ unsigned int size = 0;
 static unsigned char* data = new unsigned char[32768];
 
 void clear_screen() {
-    COORD tl = { 0, 0 };
-    CONSOLE_SCREEN_BUFFER_INFO s;
+    system("cls");
+    /*
+    COORD topLeft = { 0, 0 };
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    GetConsoleScreenBufferInfo(console, &s);
-    DWORD written, cells = s.dwSize.X * 35000;
-    FillConsoleOutputCharacterW(console, ' ', cells, tl, &written);
-    FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
-    SetConsoleCursorPosition(console, tl);
+    CONSOLE_SCREEN_BUFFER_INFO screen;
+    DWORD written;
+
+    GetConsoleScreenBufferInfo(console, &screen);
+    FillConsoleOutputCharacterA(
+        console, ' ', screen.dwSize.X * screen.dwSize.Y, topLeft, &written
+    );
+    FillConsoleOutputAttribute(
+        console, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE,
+        screen.dwSize.X * screen.dwSize.Y, topLeft, &written
+    );
+    SetConsoleCursorPosition(console, topLeft);
+    */
 }
 
 void wait_for_key_press() {
@@ -105,9 +114,9 @@ namespace mainmenu {
         }
         return bytesSent;
     }
-    static void print() {
+    static void print(const unsigned char* data) {
         clear_screen();
-
+        std::cout << std::flush;
         for (int i = 0; i < size; i += 16) {
             std::cout << std::hex << std::setfill('0') << "0x" << std::setw(4) << i << ":  ";
             for (int j = 0; j < 16; j++) {
@@ -119,10 +128,8 @@ namespace mainmenu {
                 char c = std::isprint(data[i + j]) ? static_cast<char>(data[i + j]) : '.';
                 std::cout << c;
             }
-            std::cout << " |\n";
+            std::cout << " |\n" << std::dec;
         }
-        std::cout << std::dec << "Press any key to continue... ";
-        wait_for_key_press();
     }
     static void dump() {
         OPENFILENAMEA ofn;
@@ -289,19 +296,7 @@ namespace mainmenu {
                 }
             }
             else {
-                for (int i = 0; i < size; i += 16) {
-                    printf("0x%04x:  ", i);
-                    for (int j = 0; j < 16; j++) {
-                        printf("%02hhx ", file[i + j]);
-                        if (j == 7) printf(" ");
-                    }
-                    printf(" | ");
-                    for (int j = 0; j < 16; j++) {
-                        char c = isprint((unsigned char)file[i + j]) ? (unsigned char)file[i + j] : '.';
-                        printf("%c", c);
-                    }
-                    printf(" |\n");
-                }
+                print(reinterpret_cast<const unsigned char*>(const_cast<char*>(file.c_str()))); // ugly but it works
                 break;
             }
         }
@@ -330,9 +325,10 @@ namespace mainmenu {
             write_to_serial(SP, std::string(1, (unsigned char)(addrs[i])));
             bytesSent += write_to_serial(SP, std::string(1, values[i]));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            std::cout << static_cast<int>(i / (size / 100)) << "%";
+            std::cout << static_cast<int>((static_cast<float>(i) / values.size()) * 100.f) << "%";
             SetConsoleCursorPosition(output, { 16, 0 });
         }
+        std::cout << "100%";
 
         std::cout << std::dec << std::endl << bytesSent << " bytes have been written. Reading the EEPROM into the buffer... ";
         read_into_buffer(SP);
@@ -611,7 +607,10 @@ int main(int argc, char* argv[]) {
                 }
                 switch (sel) {
                 case READ:
-                    mainmenu::print();
+                    mainmenu::print(data);
+                    std::cout << "Press any key to continue... ";
+                    wait_for_key_press();
+                    clear_screen();
                     break;
                 case VERIFY:
                     mainmenu::verify();
