@@ -32,7 +32,8 @@
 #define DUMP 2
 #define WRITE 3
 #define ERASE 4
-#define EXIT 5
+#define SDP 5
+#define EXIT 6
 
 #define AT28C64B 0
 #define AT28C256 1
@@ -63,17 +64,14 @@ void wait_for_key_press() {
     SetConsoleMode(hstdin, ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT);
 
     int ch = 10;
-    while (ch == 10) {
-        ch = std::cin.get();
-    }
+    while (ch == 10) ch = std::cin.get();
 
     clear_screen();
-
     SetConsoleMode(hstdin, mode);
 }
 
 namespace mainmenu {
-    void read_into_buffer(Serial* SP) {
+    static void read_into_buffer(Serial* SP) {
         int arr[1] = { 0x01 };
         DWORD bytesSend;
         if (!WriteFile(SP->hSerial, arr, 1, &bytesSend, 0)) {
@@ -81,6 +79,9 @@ namespace mainmenu {
             wait_for_key_press();
             return;
         }
+        HANDLE hConsoleOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO cbsi;
+        GetConsoleScreenBufferInfo(hConsoleOutput, &cbsi);
         for (int i = 0; i < size; i++) {
             unsigned char c = '\0';
             DWORD bytesRead;
@@ -90,9 +91,11 @@ namespace mainmenu {
                 return;
             }
             data[i] = c;
+            std::cout << static_cast<int>(i * (100.f / size)) << "%";
+            SetConsoleCursorPosition(hConsoleOutput, cbsi.dwCursorPosition);
         }
     }
-    DWORD write_to_serial(Serial* SP, std::string data) {
+    static DWORD write_to_serial(Serial* SP, std::string data) {
         DWORD bytesSent;
         if (!WriteFile(SP->hSerial, data.c_str(), data.size(), &bytesSent, 0)) {
             std::cout << "\nFATAL ERROR: Connection was interrupted during data transfer. Please restart application. Press any key to continue... ";
@@ -101,7 +104,7 @@ namespace mainmenu {
         }
         return bytesSent;
     }
-    void print() {
+    static void print() {
         clear_screen();
 
         for (int i = 0; i < size; i += 16) {
@@ -117,10 +120,10 @@ namespace mainmenu {
             }
             std::cout << " |\n";
         }
-        std::cout << "Press any key to continue... ";
+        std::cout << std::dec << "Press any key to continue... ";
         wait_for_key_press();
     }
-    void dump() {
+    static void dump() {
         OPENFILENAMEA ofn;
         char szFileName[MAX_PATH];
         char szFileTitle[MAX_PATH];
@@ -159,7 +162,7 @@ namespace mainmenu {
         std::cout << "EEPROM contents have been successfully dumped! Press any key to continue... ";
         wait_for_key_press();
     }
-    void verify() {
+    static void verify() {
         OPENFILENAMEA ofn;
         char szFileName[MAX_PATH];
         char szFileTitle[MAX_PATH];
@@ -214,7 +217,7 @@ namespace mainmenu {
         wait_for_key_press();
     }
 
-    void write(Serial* SP) {
+    static void write(Serial* SP) {
         std::vector<int> addrs;
         std::vector<int> values;
 
@@ -309,9 +312,11 @@ namespace mainmenu {
             }
             else if (c == 13) break;
         }
+
+        clear_screen();
         
         write_to_serial(SP, std::string(1, static_cast<char>(0x00)));
-        std::cout << std::endl << "Writing data...";
+        std::cout << "Writing data... ";
         write_to_serial(SP, std::string(1, (unsigned char)(values.size() >> 8)));
         write_to_serial(SP, std::string(1, (unsigned char)(values.size())));
         DWORD bytesSent = NULL;
@@ -321,17 +326,17 @@ namespace mainmenu {
             write_to_serial(SP, std::string(1, (unsigned char)(addrs[i])));
             bytesSent += write_to_serial(SP, std::string(1, values[i]));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            /*SetConsoleCursorPosition(output, { 11, 10 });
-            std::cout << (int)(i / (size / 100)) << "%";*/
+            std::cout << static_cast<int>(i / (size / 100)) << "%";
+            SetConsoleCursorPosition(output, { 16, 0 });
         }
 
-        std::cout << std::endl << bytesSent << " bytes have been written. Reading the EEPROM into the buffer...";
+        std::cout << std::dec << std::endl << bytesSent << " bytes have been written. Reading the EEPROM into the buffer... ";
         read_into_buffer(SP);
         std::cout << "\nSuccess. Press any key to continue... ";
         wait_for_key_press();
     }
 
-    void erase(Serial* SP) {
+    static void erase(Serial* SP) {
         std::cout << "\nYou're about to erase all data in the EEPROM.\n"
             << "Press Enter to proceed, Space to cancel. ";
         while (true) {
@@ -344,32 +349,111 @@ namespace mainmenu {
         }
 
         std::cout << std::endl << "Erasing... ";
-
-        std::vector<int> addrs;
-        for (int i = 0; i < size; i++) {
-            if (data[i] != 0) {
-                addrs.push_back(i);
-            }
-        }
+        std::vector addrs { 0x5555, 0x1AAA, 0x5555, 0x5555, 0x1AAA, 0x5555 };
+        std::vector values{ 0xAA,   0x55,   0x80,   0xAA,   0x55,   0x10   };
 
         write_to_serial(SP, std::string(1, static_cast<char>(0x00)));
-        std::cout << std::endl << "Writing data...";
-        write_to_serial(SP, std::string(1, (unsigned char)(addrs.size() >> 8)));
-        write_to_serial(SP, std::string(1, (unsigned char)(addrs.size())));
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size() >> 8)));
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size())));
         DWORD bytesSent = NULL;
         HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-        for (size_t i = 0; i < addrs.size(); i++) {
+        for (size_t i = 0; i < values.size(); i++) {
             write_to_serial(SP, std::string(1, (unsigned char)(addrs[i] >> 8)));
             write_to_serial(SP, std::string(1, (unsigned char)(addrs[i])));
-            bytesSent += write_to_serial(SP, std::string(1, 0x00));
+            bytesSent += write_to_serial(SP, std::string(1, values[i]));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            /*SetConsoleCursorPosition(output, { 11, 10 });
-            std::cout << (int)(i / (size / 100)) << "%";*/
         }
-        std::cout << "\nAll bytes have been set to 0x00. Reading the EEPROM into the buffer...";
+        
+        std::cout << "\nAll bytes have been set to 0x00. Reading the EEPROM into the buffer... ";
         read_into_buffer(SP);
         std::cout << "\nSuccess. Press any key to continue... ";
         wait_for_key_press();
+    }
+
+    static void sdt_disable(Serial* SP) {
+        std::vector addrs { 0x5555, 0x2AAA, 0x5555, 0x5555, 0x2AAA, 0x5555, 0x0000, 0x0000 };
+        std::vector values{ 0xAA,   0x55,   0x80,   0xAA,   0x55,   0x20,   0xEA,   0xEA   };
+
+        write_to_serial(SP, std::string(1, static_cast<char>(0x00)));
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size() >> 8)));
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size())));
+        DWORD bytesSent = NULL;
+        HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+        for (size_t i = 0; i < values.size(); i++) {
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i] >> 8)));
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i])));
+            bytesSent += write_to_serial(SP, std::string(1, values[i]));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        std::cout << "\nSDP (Software Data Protection) has been disabled. Press any key to continue... ";
+        wait_for_key_press();
+    }
+
+    static void sdt_enable(Serial* SP) {
+        std::vector addrs { 0x5555, 0x2AAA, 0x5555, 0x0000, 0x0000 };
+        std::vector values{ 0xAA,   0x55,   0xA0,   0xEA,   0xEA };
+
+        write_to_serial(SP, std::string(1, static_cast<char>(0x00)));
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size() >> 8)));
+        write_to_serial(SP, std::string(1, (unsigned char)(values.size())));
+        DWORD bytesSent = NULL;
+        HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+        for (size_t i = 0; i < values.size(); i++) {
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i] >> 8)));
+            write_to_serial(SP, std::string(1, (unsigned char)(addrs[i])));
+            bytesSent += write_to_serial(SP, std::string(1, values[i]));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        std::cout << "\nSDP (Software Data Protection) has been enabled. Press any key to continue... ";
+        wait_for_key_press();
+    }
+
+    static void set_sdp(Serial* SP) {
+        clear_screen();
+        int sel = 0;
+        std::cout << "Select operation:\n"
+            "> Enable SDP (Software Data Protection)\n"
+            "  Disable SDP\n"
+            "  Cancel\n";
+        unsigned int ch = 0;
+        bool loop = true;
+        while (loop) {
+            ch = 0;
+            HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+            switch (ch = _getch()) {
+            case KEY_DOWN:
+                SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                std::cout << (char)(0x20) << std::flush;
+                ((sel != 2) ? sel++ : sel = 0);
+                SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                std::cout << ">" << std::flush;
+                SetConsoleCursorPosition(output, { 0, 4 });
+                break;
+            case KEY_UP:
+                SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                std::cout << (char)(0x20) << std::flush;
+                ((sel != 0) ? sel-- : sel = 2);
+                SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                std::cout << ">" << std::flush;
+                SetConsoleCursorPosition(output, { 0, 4 });
+                break;
+            case VK_RETURN:
+                loop = false;
+                break;
+            }
+        }
+        switch (sel) {
+        case 0:
+            mainmenu::sdt_enable(SP);
+            break;
+        case 1:
+            mainmenu::sdt_disable(SP);
+            break;
+        case 2:
+            return;
+        }
     }
 }
 
@@ -437,9 +521,9 @@ int main(int argc, char* argv[]) {
             clear_screen();
             std::cout << "Connection established! Baud rate: 115200";
             int chip = 0;
-            std::cout << "\nSelect the chip model:\n"
-                "> AT28C64B\n"
-                "  AT28C256\n";
+            std::cout << "\nSelect the chip size:\n"
+                "> 64K  (8K x 8)\n"
+                "  256K (32K x 8)\n";
             unsigned int ch = 0;
             bool loop = true;
             while (loop) {
@@ -492,6 +576,7 @@ int main(int argc, char* argv[]) {
                     "  Dump to file\n"
                     "  Write\n"
                     "  Erase\n"
+                    "  Set SDP\n"
                     "  Exit\n";
                 unsigned int ch = 0, sel = 0;
                 bool loop = true;
@@ -502,18 +587,18 @@ int main(int argc, char* argv[]) {
                     case KEY_DOWN:
                         SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
                         std::cout << (char)(0x20) << std::flush;
-                        ((sel != 5) ? sel++ : sel = 0);
+                        ((sel != 6) ? sel++ : sel = 0);
                         SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
                         std::cout << ">" << std::flush;
-                        SetConsoleCursorPosition(output, { 0, 7 });
+                        SetConsoleCursorPosition(output, { 0, 8 });
                         break;
                     case KEY_UP:
                         SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
                         std::cout << (char)(0x20) << std::flush;
-                        ((sel != 0) ? sel-- : sel = 5);
+                        ((sel != 0) ? sel-- : sel = 6);
                         SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
                         std::cout << ">" << std::flush;
-                        SetConsoleCursorPosition(output, { 0, 7 });
+                        SetConsoleCursorPosition(output, { 0, 8 });
                         break;
                     case VK_RETURN:
                         loop = false;
@@ -535,6 +620,9 @@ int main(int argc, char* argv[]) {
                     break;
                 case ERASE:
                     mainmenu::erase(SP);
+                    break;
+                case SDP:
+                    mainmenu::set_sdp(SP);
                     break;
                 case EXIT:
                     return 0;
