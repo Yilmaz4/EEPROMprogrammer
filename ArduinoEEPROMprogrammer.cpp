@@ -94,6 +94,7 @@ namespace mainmenu {
             std::cout << static_cast<int>(i * (100.f / size)) << "%";
             SetConsoleCursorPosition(hConsoleOutput, cbsi.dwCursorPosition);
         }
+        std::cout << "100%";
     }
     static DWORD write_to_serial(Serial* SP, std::string data) {
         DWORD bytesSent;
@@ -192,23 +193,26 @@ namespace mainmenu {
         in.open(ofn.lpstrFile, std::ios::in | std::ios::binary);
 
         DWORD bytesRead;
-        std::vector<int> addresses;
+        std::vector<int> addrs;
 
-        for (int i = 0; i < size && !in.eof(); i++) {
-            unsigned char ch;
-            in >> ch;
-            DWORD bytesSend;
-            
-            if (data[i] != ch) {
-                addresses.push_back(i);
+        std::string file((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        int length = file.size();
+        file.resize(size);
+        for (int i = length; i < size; i++) {
+            file[i] = 0x00;
+        }
+        for (int i = 0; i < size; i++) {
+            if (data[i] != static_cast<unsigned char>(file[i])) {
+                addrs.push_back(i);
             }
         }
-        if (addresses.empty()) {
+
+        if (addrs.empty()) {
             std::cout << "The selected file and the EEPROM contents are identical! ";
         }
         else {
-            std::cout << "Data mismatch found in " << addresses.size() << " addresses:" << std::endl;
-            for (int const& a : addresses) {
+            std::cout << "Data mismatch found in " << addrs.size() << " addresses:" << std::endl;
+            for (int const& a : addrs) {
                 printf("0x%04x, ", a);
             }
             std::cout << std::endl;
