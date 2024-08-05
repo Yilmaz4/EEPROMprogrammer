@@ -45,7 +45,7 @@ unsigned int size = 0;
 
 static unsigned char* data = new unsigned char[32768];
 
-void clear_screen() {
+static void clear_screen() {
     system("cls");
     /*
     COORD topLeft = { 0, 0 };
@@ -65,7 +65,7 @@ void clear_screen() {
     */
 }
 
-void wait_for_key_press() {
+static void wait_for_key_press() {
     HANDLE hstdin;
     DWORD  mode;
     hstdin = GetStdHandle(STD_INPUT_HANDLE);
@@ -84,7 +84,7 @@ namespace mainmenu {
         int arr[1] = { 0x01 };
         DWORD bytesSend;
         if (!WriteFile(SP->hSerial, arr, 1, &bytesSend, 0)) {
-            std::cout << std::endl << "An error occured while trying to communicate with Arduino. Press any key to continue...";
+            std::cerr << std::endl << "An error occured while trying to communicate with Arduino. Press any key to continue...";
             wait_for_key_press();
             return;
         }
@@ -95,7 +95,7 @@ namespace mainmenu {
             unsigned char c = '\0';
             DWORD bytesRead;
             if (!ReadFile(SP->hSerial, &c, 1, &bytesRead, NULL)) {
-                std::cout << "An error occured while reading EEPROM. Press any key to continue... ";
+                std::cerr << "An error occured while reading EEPROM. Press any key to continue... ";
                 wait_for_key_press();
                 return;
             }
@@ -108,7 +108,7 @@ namespace mainmenu {
     static DWORD write_to_serial(Serial* SP, std::string data) {
         DWORD bytesSent;
         if (!WriteFile(SP->hSerial, data.c_str(), data.size(), &bytesSent, 0)) {
-            std::cout << "\nFATAL ERROR: Connection was interrupted during data transfer. Please restart application. Press any key to continue... ";
+            std::cerr << "\nFATAL ERROR: Connection was interrupted during data transfer. Please restart application. Press any key to continue... ";
             wait_for_key_press();
             throw std::exception();
         }
@@ -349,8 +349,8 @@ namespace mainmenu {
         }
 
         std::cout << std::endl << "Erasing... ";
-        std::vector addrs { 0x5555, 0x1AAA, 0x5555, 0x5555, 0x1AAA, 0x5555 };
-        std::vector values{ 0xAA,   0x55,   0x80,   0xAA,   0x55,   0x10   };
+        std::vector addrs { 0x5555, 0x2AAA, 0x5555, 0x5555, 0x2AAA, 0x5555 };
+        std::vector values{ 0xAA,   0x55,   0x80,   0xAA,   0x55,   0x10   }; // doesn't work, idk why
 
         write_to_serial(SP, std::string(1, static_cast<char>(0x00)));
         write_to_serial(SP, std::string(1, (unsigned char)(values.size() >> 8)));
@@ -363,6 +363,8 @@ namespace mainmenu {
             bytesSent += write_to_serial(SP, std::string(1, values[i]));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
         
         std::cout << "\nAll bytes have been set to 0x00. Reading the EEPROM into the buffer... ";
         read_into_buffer(SP);
@@ -466,7 +468,7 @@ int main(int argc, char* argv[]) {
             while (true) {
                 comPorts = GetAvailableCOMPorts();
                 if (comPorts.size() == 0) {
-                    std::cout << "No Arduino detected! Ensure proper connectivity, then press any key to retry... ";
+                    std::cerr << "No Arduino detected! Ensure proper connectivity, then press any key to retry... ";
                     wait_for_key_press();
                     continue;
                 }
@@ -512,7 +514,7 @@ int main(int argc, char* argv[]) {
                 SP = new Serial(port);
 
                 if (!SP->IsConnected()) {
-                    std::cout << std::endl << "Connection failed! Close all other instances and try again. Press any key to continue... ";
+                    std::cerr << std::endl << "Connection failed! Close all other instances and try again. Press any key to continue... ";
                     wait_for_key_press();
                     continue;
                 }
@@ -566,11 +568,12 @@ int main(int argc, char* argv[]) {
 
             while (true) {
                 if (!SP->IsConnected()) {
-                    std::cout << "Connection lost to " << std::string("COM") + std::to_string(comPorts[sel]) << ". Press any key to reconnect... ";
+                    std::cerr << "Connection lost to " << std::string("COM") + std::to_string(comPorts[sel]) << ". Press any key to reconnect... ";
                     wait_for_key_press();
                     break;
                 }
-                std::cout << "Select an operation to continue:\n"
+                std::cout << "EEPROMprogrammer [Version 0.1]\nCopyright (c) 2017-2023 Yilmaz Alpaslan\n\n";
+                std::cout << "Select an operation:\n"
                     "> Read\n"
                     "  Verify\n"
                     "  Dump to file\n"
@@ -585,20 +588,20 @@ int main(int argc, char* argv[]) {
                     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
                     switch (ch = _getch()) {
                     case KEY_DOWN:
-                        SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                        SetConsoleCursorPosition(output, { 0, (short)(4 + sel) });
                         std::cout << (char)(0x20) << std::flush;
                         ((sel != 6) ? sel++ : sel = 0);
-                        SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                        SetConsoleCursorPosition(output, { 0, (short)(4 + sel) });
                         std::cout << ">" << std::flush;
-                        SetConsoleCursorPosition(output, { 0, 8 });
+                        SetConsoleCursorPosition(output, { 0, 11 });
                         break;
                     case KEY_UP:
-                        SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                        SetConsoleCursorPosition(output, { 0, (short)(4 + sel) });
                         std::cout << (char)(0x20) << std::flush;
                         ((sel != 0) ? sel-- : sel = 6);
-                        SetConsoleCursorPosition(output, { 0, (short)(1 + sel) });
+                        SetConsoleCursorPosition(output, { 0, (short)(4 + sel) });
                         std::cout << ">" << std::flush;
-                        SetConsoleCursorPosition(output, { 0, 8 });
+                        SetConsoleCursorPosition(output, { 0, 11 });
                         break;
                     case VK_RETURN:
                         loop = false;
