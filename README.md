@@ -7,4 +7,6 @@ Inspired by [Ben Eater's EEPROM Programmer](https://www.youtube.com/watch?v=K88p
 
 ![Screenshot 2024-08-05 141309](https://github.com/user-attachments/assets/2864a59e-4a8d-4199-b1bb-3e2cccf801f7)
 
-![WhatsApp Image 2024-08-05 at 14 16 44_b6910967](https://github.com/user-attachments/assets/fbca9eec-ffd5-4346-8088-aa2f46720137)
+<img alt="EEPROM Programmer Picture" src="[https://github.com/favicon.ico](https://github.com/user-attachments/assets/135f4cc3-97b6-457c-983f-df606b97908b)" width="563">
+
+<img width="563" alt="EEPROM Programmer Schematic" src="https://github.com/user-attachments/assets/38004c47-2a26-47c0-a28d-425ebb95dbcd">
